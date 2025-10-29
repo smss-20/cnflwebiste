@@ -1,6 +1,6 @@
 import { supabase } from './client';
 import { User, UserRole, Event, CricketTeam, Player, ParticipantTeam, ReplacementRequest, Announcement, ChatMessage, SiteSettings, CnflHistory } from '../types';
-import type { Session, User as SupabaseUser } from 'npm:@supabase/supabase-js';
+import type { Session, User as SupabaseUser } from '@supabase/supabase-js';
 
 // --- Auth API ---
 export const getSession = () => supabase.auth.getSession();
