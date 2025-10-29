@@ -1,0 +1,309 @@
+# Cricket Nagar Fantasy League: Supabase Setup & Deployment Guide
+
+Follow these steps carefully to get your fantasy league website up and running with a Supabase backend.
+
+---
+## ⚡⚡⚡ CRITICAL FIRST STEP ⚡⚡⚡
+---
+
+**THE WEBSITE WILL NOT WORK until you add your Supabase credentials.**
+
+You MUST edit the `supabase/client.ts` file and replace the placeholder values with your project's unique URL and Key. You can find these in your Supabase project's API settings.
+
+Failing to do this will result in a configuration error screen.
+
+---
+## Part 1: Supabase Project Setup
+---
+
+1.  **Create a Supabase Account:**
+    *   Go to [supabase.com](https://supabase.com/) and sign up for a free account.
+
+2.  **Create a New Project:**
+    *   On your Supabase dashboard, click "New project".
+    *   Give your project a name (e.g., "Cricket-Nagar-Fantasy-League").
+    *   Generate a secure database password and save it somewhere safe.
+    *   Choose a region closest to your users.
+    *   Click "Create new project" and wait a few minutes for it to be set up.
+
+3.  **Get API Credentials:**
+    *   Once your project is ready, navigate to the "Project Settings" (the gear icon ⚙️ in the left sidebar).
+    *   Click on the "API" tab.
+    *   You will find your **Project URL** and your **`anon` public API Key**.
+
+4.  **Configure the Application:**
+    *   Open the `supabase/client.ts` file in your project.
+    *   Replace the placeholder values for `supabaseUrl` and `supabaseAnonKey` with the credentials you just copied.
+    *   **Example:**
+        ```javascript
+        const supabaseUrl = 'https://your-project-ref.supabase.co';
+        const supabaseAnonKey = 'your-long-anon-public-key';
+        ```
+    *   Save the file.
+
+---
+## Part 2: Database Schema Setup
+---
+
+The following SQL script will create all the necessary tables, relationships, and security policies for the application.
+
+1.  **Go to the SQL Editor:**
+    *   In your Supabase project dashboard, click the "SQL Editor" icon (a database symbol with "SQL" on it) in the left sidebar.
+    *   Click "+ New query".
+
+2.  **Run the Schema Script:**
+    *   Copy the ENTIRE SQL script below.
+    *   Paste it into the SQL Editor.
+    *   Click the "RUN" button. This will set up your entire database.
+
+```sql
+-- ========= CREATE TABLES =========
+
+-- Profiles table to store user data, linked to auth users
+CREATE TABLE public.profiles (
+    id uuid NOT NULL,
+    "fullName" text NOT NULL,
+    email text NOT NULL,
+    "fbLink" text,
+    role text NOT NULL,
+    CONSTRAINT profiles_pkey PRIMARY KEY (id),
+    CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE
+);
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+
+-- Events table
+CREATE TABLE public.events (
+    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    created_at timestamp with time zone NOT NULL DEFAULT now(),
+    name text NOT NULL,
+    description text NOT NULL,
+    "registrationDeadline" timestamp with time zone NOT NULL,
+    "tournamentEndTime" timestamp with time zone NOT NULL,
+    duration text NOT NULL,
+    "leagueType" text NOT NULL,
+    "maxForeignPlayers" integer,
+    "totalMatches" integer NOT NULL,
+    "maxMatchesPerTeam" integer NOT NULL,
+    "maxPlayersFromSingleTeam" integer NOT NULL,
+    "maxVipPlayers" integer NOT NULL,
+    "maxReplacements" integer NOT NULL,
+    logo text,
+    CONSTRAINT events_pkey PRIMARY KEY (id)
+);
+ALTER TABLE public.events ENABLE ROW LEVEL SECURITY;
+
+-- Cricket teams table
+CREATE TABLE public.teams (
+    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    created_at timestamp with time zone NOT NULL DEFAULT now(),
+    name text NOT NULL,
+    "eventId" uuid NOT NULL,
+    CONSTRAINT teams_pkey PRIMARY KEY (id),
+    CONSTRAINT teams_eventId_fkey FOREIGN KEY ("eventId") REFERENCES public.events(id) ON DELETE CASCADE
+);
+ALTER TABLE public.teams ENABLE ROW LEVEL SECURITY;
+
+-- Players table
+CREATE TABLE public.players (
+    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    created_at timestamp with time zone NOT NULL DEFAULT now(),
+    name text NOT NULL,
+    category text NOT NULL,
+    "playerType" text NOT NULL,
+    "teamId" uuid NOT NULL,
+    "teamName" text NOT NULL,
+    "eventId" uuid NOT NULL,
+    points jsonb DEFAULT '[]'::jsonb,
+    CONSTRAINT players_pkey PRIMARY KEY (id),
+    CONSTRAINT players_teamId_fkey FOREIGN KEY ("teamId") REFERENCES public.teams(id) ON DELETE CASCADE,
+    CONSTRAINT players_eventId_fkey FOREIGN KEY ("eventId") REFERENCES public.events(id) ON DELETE CASCADE
+);
+ALTER TABLE public.players ENABLE ROW LEVEL SECURITY;
+
+-- Participant fantasy teams table
+CREATE TABLE public.participant_teams (
+    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    created_at timestamp with time zone NOT NULL DEFAULT now(),
+    "participantId" uuid NOT NULL,
+    "participantName" text NOT NULL,
+    "teamName" text NOT NULL,
+    "eventId" uuid NOT NULL,
+    players jsonb NOT NULL,
+    "replacementsLeft" integer NOT NULL,
+    "archivedPoints" numeric NOT NULL DEFAULT 0,
+    "joinHistory" jsonb,
+    CONSTRAINT participant_teams_pkey PRIMARY KEY (id),
+    CONSTRAINT participant_teams_participantId_fkey FOREIGN KEY ("participantId") REFERENCES public.profiles(id) ON DELETE CASCADE,
+    CONSTRAINT participant_teams_eventId_fkey FOREIGN KEY ("eventId") REFERENCES public.events(id) ON DELETE CASCADE
+);
+ALTER TABLE public.participant_teams ENABLE ROW LEVEL SECURITY;
+
+-- Replacement requests table
+CREATE TABLE public.replacement_requests (
+    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    created_at timestamp with time zone NOT NULL DEFAULT now(),
+    "participantTeamId" uuid NOT NULL,
+    "participantName" text NOT NULL,
+    "currentPlayaerId" text NOT NULL,
+    "newPlayerId" text NOT NULL,
+    note text,
+    status text NOT NULL DEFAULT 'pending'::text,
+    reason text,
+    timestamp timestamp with time zone NOT NULL,
+    CONSTRAINT replacement_requests_pkey PRIMARY KEY (id),
+    CONSTRAINT replacement_requests_participantTeamId_fkey FOREIGN KEY ("participantTeamId") REFERENCES public.participant_teams(id) ON DELETE CASCADE
+);
+ALTER TABLE public.replacement_requests ENABLE ROW LEVEL SECURITY;
+
+-- Announcements table
+CREATE TABLE public.announcements (
+    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    created_at timestamp with time zone NOT NULL DEFAULT now(),
+    message text NOT NULL,
+    timestamp timestamp with time zone NOT NULL,
+    scope text NOT NULL,
+    CONSTRAINT announcements_pkey PRIMARY KEY (id)
+);
+ALTER TABLE public.announcements ENABLE ROW LEVEL SECURITY;
+
+-- Chat messages table
+CREATE TABLE public.chat_messages (
+    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    created_at timestamp with time zone NOT NULL DEFAULT now(),
+    "senderId" text NOT NULL,
+    "senderName" text NOT NULL,
+    "receiverId" text NOT NULL,
+    message text NOT NULL,
+    timestamp timestamp with time zone NOT NULL,
+    "isRead" boolean NOT NULL DEFAULT false,
+    CONSTRAINT chat_messages_pkey PRIMARY KEY (id)
+);
+ALTER TABLE public.chat_messages ENABLE ROW LEVEL SECURITY;
+
+-- Site settings table (single row)
+CREATE TABLE public.site_settings (
+    id bigint NOT NULL,
+    "siteLogo" text,
+    "contactInfo" text,
+    "heroTitle" text,
+    "heroHighlightedText" text,
+    "heroSubtitle" text,
+    "heroBackgroundImage" text,
+    "showParticipantTeams" boolean DEFAULT false,
+    CONSTRAINT site_settings_pkey PRIMARY KEY (id)
+);
+ALTER TABLE public.site_settings ENABLE ROW LEVEL SECURITY;
+
+-- CNFL history table
+CREATE TABLE public.cnfl_history (
+    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    "seasonNumber" text NOT NULL,
+    "tournamentName" text NOT NULL,
+    winner text NOT NULL,
+    "runnersUp" text NOT NULL,
+    "participantCount" text NOT NULL,
+    CONSTRAINT cnfl_history_pkey PRIMARY KEY (id)
+);
+ALTER TABLE public.cnfl_history ENABLE ROW LEVEL SECURITY;
+
+-- ========= ROW LEVEL SECURITY (RLS) POLICIES =========
+-- Allow public read access to most tables, but restrict modifications to logged-in users.
+
+CREATE POLICY "Allow public read access" ON public.events FOR SELECT USING (true);
+CREATE POLICY "Allow public read access" ON public.teams FOR SELECT USING (true);
+CREATE POLICY "Allow public read access" ON public.players FOR SELECT USING (true);
+CREATE POLICY "Allow public read access" ON public.participant_teams FOR SELECT USING (true);
+CREATE POLICY "Allow public read access" ON public.announcements FOR SELECT USING (true);
+CREATE POLICY "Allow public read access" ON public.site_settings FOR SELECT USING (true);
+CREATE POLICY "Allow public read access" ON public.cnfl_history FOR SELECT USING (true);
+CREATE POLICY "Allow public read access on profiles" ON public.profiles FOR SELECT USING (true);
+CREATE POLICY "Allow read access for own messages" ON public.chat_messages FOR SELECT USING (auth.uid()::text = "senderId" OR auth.uid()::text = "receiverId");
+CREATE POLICY "Allow read access for requests" ON public.replacement_requests FOR SELECT USING (true);
+
+
+CREATE POLICY "Allow insert for authenticated users" ON public.events FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "Allow insert for authenticated users" ON public.teams FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "Allow insert for authenticated users" ON public.players FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "Allow insert for authenticated users" ON public.participant_teams FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "Allow insert for authenticated users" ON public.replacement_requests FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "Allow insert for authenticated users" ON public.announcements FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "Allow insert for authenticated users" ON public.chat_messages FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "Allow insert for authenticated users" ON public.site_settings FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "Allow insert for authenticated users" ON public.cnfl_history FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+
+CREATE POLICY "Allow update for authenticated users" ON public.events FOR UPDATE USING (auth.role() = 'authenticated');
+CREATE POLICY "Allow update for authenticated users" ON public.teams FOR UPDATE USING (auth.role() = 'authenticated');
+CREATE POLICY "Allow update for authenticated users" ON public.players FOR UPDATE USING (auth.role() = 'authenticated');
+CREATE POLICY "Allow update for authenticated users" ON public.participant_teams FOR UPDATE USING (auth.role() = 'authenticated');
+CREATE POLICY "Allow update for authenticated users" ON public.replacement_requests FOR UPDATE USING (auth.role() = 'authenticated');
+CREATE POLICY "Allow update for authenticated users" ON public.announcements FOR UPDATE USING (auth.role() = 'authenticated');
+CREATE POLICY "Allow update for authenticated users" ON public.site_settings FOR UPDATE USING (auth.role() = 'authenticated');
+CREATE POLICY "Allow update for authenticated users" ON public.cnfl_history FOR UPDATE USING (auth.role() = 'authenticated');
+CREATE POLICY "Allow users to update their own profile" ON public.profiles FOR UPDATE USING (auth.uid() = id) WITH CHECK (auth.uid() = id);
+
+CREATE POLICY "Allow delete for authenticated users" ON public.events FOR DELETE USING (auth.role() = 'authenticated');
+CREATE POLICY "Allow delete for authenticated users" ON public.teams FOR DELETE USING (auth.role() = 'authenticated');
+CREATE POLICY "Allow delete for authenticated users" ON public.players FOR DELETE USING (auth.role() = 'authenticated');
+CREATE POLICY "Allow delete for authenticated users" ON public.announcements FOR DELETE USING (auth.role() = 'authenticated');
+CREATE POLICY "Allow delete for authenticated users" ON public.cnfl_history FOR DELETE USING (auth.role() = 'authenticated');
+
+
+-- ========= REALTIME PUBLICATION SETUP =========
+-- This enables the app to listen for database changes in real-time.
+CREATE PUBLICATION supabase_realtime FOR ALL TABLES;
+
+```
+
+---
+## Part 3: Authentication Setup
+---
+
+1.  **Navigate to Authentication Settings:**
+    *   In your Supabase project, go to "Authentication" (the users icon) in the sidebar.
+    *   Click on "Settings".
+
+2.  **Disable Email Confirmation:**
+    *   Scroll down to the "Email" section.
+    *   **Toggle OFF** the "Confirm email" option.
+    *   This is recommended for this project as the app does not have a built-in email confirmation flow. It makes registration and testing much easier.
+    *   Click "Save".
+
+---
+## Part 4: Initial Data
+---
+
+The website's header, footer, and homepage content depend on a single row in the `site_settings` table. You need to insert this initial row.
+
+1.  **Go to the SQL Editor.**
+2.  Click "+ New query".
+3.  Paste and **RUN** the following command:
+
+```sql
+INSERT INTO public.site_settings (id, "heroTitle", "heroHighlightedText", "showParticipantTeams", "contactInfo")
+VALUES (1, 'Welcome to', 'Cricket Nagar Fantasy League', false, 'For questions or support, please contact the admin on Facebook.');
+```
+You can later change these values from the Admin Dashboard within the app.
+
+---
+## Part 5: Website Deployment
+---
+
+This application is a "static site" which means you can deploy it easily without a complex server.
+
+1.  **Prepare Your Files:**
+    *   Your project folder containing `index.html`, `index.tsx`, etc., is all you need. There is no special build step required for this setup.
+
+2.  **Choose a Hosting Provider:**
+    *   Services like Netlify, Vercel, or GitHub Pages are excellent and have free tiers.
+
+3.  **Deploy using Netlify (Easiest Method):**
+    *   Go to [app.netlify.com](https://app.netlify.com/) and log in.
+    *   On the "Sites" page, you will see a section that says "**Drag and drop your site folder here**".
+    *   Simply drag your entire project folder (`Cricket-Nagar-Fantasy-League`) and drop it onto that area.
+    *   Netlify will upload your files and give you a live website URL in seconds.
+
+Your website is now live! The first user to register will be a "PARTICIPANT". To create an admin, you must:
+1.  Register a user normally through the app's signup page.
+2.  Go to your Supabase dashboard -> Table Editor -> `profiles` table.
+3.  Find the user you just created and change their `role` from `PARTICIPANT` to `ADMIN`.
+4.  Log out and log back in with that user to access the Admin Dashboard.
