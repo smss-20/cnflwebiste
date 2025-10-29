@@ -1,13 +1,13 @@
 import { createClient } from '@supabase/supabase-js'
 
 // IMPORTANT: Replace with your project's URL and Anon Key
-const supabaseUrl = 'YOUR_SUPABASE_URL';
-const supabaseAnonKey = 'YOUR_SUPABASE_ANON_KEY';
+const supabaseUrl = 'https://qgjkldeadywivirpkxqw.supabase.co';
+const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFnamtsZGVhZHl3aXZpcnBreHF3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE3NjAxODQsImV4cCI6MjA3NzMzNjE4NH0.0fev626AoSYJNe3I9_aQmLx_hsEIN50_VLXa_kVauSQ';
 
 let supabase: any = null;
 let supabaseError: { title: string; description: string; } | null = null;
 
-if (!supabaseUrl || supabaseUrl === 'YOUR_SUPABASE_URL' || !supabaseAnonKey || supabaseAnonKey === 'YOUR_SUPABASE_ANON_KEY') {
+if (!supabaseUrl || supabaseUrl === 'https://qgjkldeadywivirpkxqw.supabase.co' || !supabaseAnonKey || supabaseAnonKey === 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFnamtsZGVhZHl3aXZpcnBreHF3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE3NjAxODQsImV4cCI6MjA3NzMzNjE4NH0.0fev626AoSYJNe3I9_aQmLx_hsEIN50_VLXa_kVauSQ') {
   supabaseError = {
     title: "Supabase Not Configured",
     description: "The application is not connected to a backend database. Please follow the setup instructions in gihub_vcxel_supabase.txt and update the credentials in supabase/client.ts."
