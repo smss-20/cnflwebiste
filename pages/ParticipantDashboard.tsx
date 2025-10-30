@@ -7,7 +7,7 @@ import {
     AnnouncementIcon, HistoryIcon, HomeIcon, LeaderboardIcon, ChevronDownIcon
 } from '../components/icons';
 
-type ParticipantView = 'dashboard' | 'createTeam' | 'viewMyXI' | 'replacePlayer' | 'chatBox' | 'notifications' | 'replacementHistory' | 'viewAllTeams';
+type ParticipantView = 'dashboard' | 'createTeam' | 'editTeam' | 'viewMyXI' | 'replacePlayer' | 'chatBox' | 'notifications' | 'replacementHistory' | 'viewAllTeams';
 type EventStatus = 'UPCOMING' | 'RUNNING' | 'FINISHED' | 'NO_EVENT';
 
 const ParticipantDashboard: React.FC = () => {
@@ -23,45 +23,37 @@ const ParticipantDashboard: React.FC = () => {
         if (!user) return { eventStatus: 'NO_EVENT' };
 
         const myTeams = state.participantTeams.filter(pt => pt.participantId === user.id);
-        const myEvents = myTeams.map(team => state.events.find(e => e.id === team.eventId)).filter(Boolean) as Event[];
         
-        const runningEvent = myEvents.find(e => now > new Date(e.registrationDeadline) && now < new Date(e.tournamentEndTime));
-        if (runningEvent) {
-            return {
-                activeEvent: runningEvent,
-                participantTeam: myTeams.find(t => t.eventId === runningEvent.id),
-                eventStatus: 'RUNNING'
-            };
-        }
-        
-        const upcomingRegisteredEvent = myEvents.find(e => now < new Date(e.registrationDeadline));
-        if (upcomingRegisteredEvent) {
-             return {
-                activeEvent: upcomingRegisteredEvent,
-                participantTeam: myTeams.find(t => t.eventId === upcomingRegisteredEvent.id),
-                eventStatus: 'UPCOMING'
-            };
+        // Find the event the user has registered for that is either running or upcoming
+        const relevantTeam = myTeams.find(team => {
+            const event = state.events.find(e => e.id === team.eventId);
+            return event && new Date(event.tournamentEndTime) > now;
+        });
+
+        if (relevantTeam) {
+            const event = state.events.find(e => e.id === relevantTeam.eventId)!;
+            const status: EventStatus = now < new Date(event.registrationDeadline) ? 'UPCOMING' : 'RUNNING';
+            return { activeEvent: event, participantTeam: relevantTeam, eventStatus: status };
         }
 
-        const latestFinishedEvent = myEvents
-            .filter(e => now > new Date(e.tournamentEndTime))
-            .sort((a,b) => new Date(b.tournamentEndTime).getTime() - new Date(a.tournamentEndTime).getTime())[0];
+        // If no running/upcoming team, check for an open registration event
+        const openRegistrationEvent = state.events.find(event => now < new Date(event.registrationDeadline));
+        if (openRegistrationEvent) {
+            return { activeEvent: openRegistrationEvent, participantTeam: undefined, eventStatus: 'UPCOMING' };
+        }
+
+        // If nothing else, find the most recently finished event they participated in
+        const finishedEvents = myTeams.map(team => state.events.find(e => e.id === team.eventId))
+            .filter(Boolean) as Event[];
         
-        if (latestFinishedEvent) {
+        if (finishedEvents.length > 0) {
+            finishedEvents.sort((a, b) => new Date(b.tournamentEndTime).getTime() - new Date(a.tournamentEndTime).getTime());
+            const latestFinishedEvent = finishedEvents[0];
             return {
                 activeEvent: latestFinishedEvent,
                 participantTeam: myTeams.find(t => t.eventId === latestFinishedEvent.id),
                 eventStatus: 'FINISHED'
             };
-        }
-        
-        const openRegistrationEvent = state.events.find(event => now < new Date(event.registrationDeadline));
-        if (openRegistrationEvent) {
-            return {
-                activeEvent: openRegistrationEvent,
-                participantTeam: undefined,
-                eventStatus: 'UPCOMING'
-            }
         }
 
         return { eventStatus: 'NO_EVENT' };
@@ -74,16 +66,19 @@ const ParticipantDashboard: React.FC = () => {
         if (!loading) {
             if (participantTeam) {
                 setActiveView('viewMyXI');
+            } else if (eventStatus === 'UPCOMING') {
+                setActiveView('dashboard'); // Stay on dashboard to show create CTA
             } else {
-                setActiveView('dashboard');
+                 setActiveView('dashboard');
             }
         }
-    }, [loading, participantTeam]);
+    }, [loading, participantTeam, eventStatus]);
     
     const menuItems = [
         { id: 'dashboard', label: 'Dashboard', icon: <HomeIcon /> },
+        ...(!participantTeam && eventStatus === 'UPCOMING' ? [{ id: 'createTeam', label: 'Create Team', icon: <CreateTeamIcon />, disabled: false }] : []),
         { id: 'viewMyXI', label: 'View My XI', icon: <ViewTeamIcon />, disabled: !participantTeam },
-        { id: 'viewAllTeams', label: 'Leaderboard', icon: <LeaderboardIcon />, disabled: eventStatus === 'UPCOMING' && !state.siteSettings.showParticipantTeams },
+        { id: 'viewAllTeams', label: 'All Teams', icon: <LeaderboardIcon />, disabled: eventStatus === 'FINISHED' || eventStatus === 'NO_EVENT' },
         { id: 'replacePlayer', label: 'Replace Player', icon: <ReplacementIcon />, disabled: eventStatus !== 'RUNNING' || participantTeam?.replacementsLeft === 0 },
         { id: 'chatBox', label: 'Chat with Admin', icon: <MessageIcon /> },
         { id: 'notifications', label: 'Notifications', icon: <AnnouncementIcon /> },
@@ -100,7 +95,8 @@ const ParticipantDashboard: React.FC = () => {
         }
         switch (activeView) {
             case 'dashboard': return <DashboardView setActiveView={setActiveView} event={activeEvent} team={participantTeam} status={eventStatus} />;
-            case 'createTeam': return <CreateTeamView setActiveView={setActiveView} />;
+            case 'createTeam': return <TeamEditor setActiveView={setActiveView} />;
+            case 'editTeam': return <TeamEditor setActiveView={setActiveView} teamToEdit={participantTeam} />;
             case 'viewMyXI': return <ViewMyXIView setActiveView={setActiveView} team={participantTeam} status={eventStatus} />;
             case 'viewAllTeams': return <ViewAllTeamsView />;
             case 'replacePlayer': return <ReplacePlayerView setActiveView={setActiveView} />;
@@ -150,7 +146,7 @@ const DashboardView: React.FC<DashboardViewProps> = ({ setActiveView, event, tea
         return (
             <div className="text-center p-8 bg-gray-800 rounded-lg">
                 <h2 className="text-2xl font-bold">Welcome Back!</h2>
-                <p className="mt-2 text-gray-300">You have already created a team for the event: {event?.name}.</p>
+                <p className="mt-2 text-gray-300">You have a team for the event: {event?.name}.</p>
                 <button onClick={() => setActiveView('viewMyXI')} className="mt-6 bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg text-lg">
                     View My XI
                 </button>
@@ -169,22 +165,45 @@ const DashboardView: React.FC<DashboardViewProps> = ({ setActiveView, event, tea
             </div>
         )
     }
+    
+    if (status === 'RUNNING' && event) {
+        return (
+            <div className="text-center p-8 bg-gray-800 rounded-lg">
+                <h2 className="text-2xl font-bold">Registration Closed</h2>
+                <p>The registration period for {event.name} has ended. You can still view other teams.</p>
+                 <button onClick={() => setActiveView('viewAllTeams')} className="mt-6 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg text-lg">
+                    View All Teams
+                </button>
+            </div>
+        )
+    }
 
     return (
         <div className="text-center p-8 bg-gray-800 rounded-lg">
-            <h2 className="text-2xl font-bold">Registration Closed</h2>
-            <p>The registration period for the current event has ended. Please check back for future events.</p>
+            <h2 className="text-2xl font-bold">Event Concluded</h2>
+            <p>The event "{event?.name}" has finished. Check back later for new events!</p>
         </div>
     )
 }
 
-const CreateTeamView: React.FC<{ setActiveView: (view: ParticipantView) => void }> = ({ setActiveView }) => {
+interface TeamEditorProps {
+    setActiveView: (view: ParticipantView) => void;
+    teamToEdit?: ParticipantTeam;
+}
+
+const TeamEditor: React.FC<TeamEditorProps> = ({ setActiveView, teamToEdit }) => {
     const { state, actions } = useData();
     const { user } = useAuth();
+    const isEditing = !!teamToEdit;
+
     const activeEvent = state.events.find(event => new Date(event.registrationDeadline) >= new Date());
     
-    const [teamName, setTeamName] = useState('');
-    const [selectedPlayers, setSelectedPlayers] = useState<(ParticipantTeamPlayer | null)[]>(Array(11).fill(null));
+    const [teamName, setTeamName] = useState(teamToEdit?.teamName || '');
+    const [selectedPlayers, setSelectedPlayers] = useState<(ParticipantTeamPlayer | null)[]>(
+        isEditing && teamToEdit?.players
+        ? [...teamToEdit.players]
+        : Array(11).fill(null)
+    );
     const [error, setError] = useState('');
 
     const playerDetails = useMemo(() => {
@@ -211,7 +230,7 @@ const CreateTeamView: React.FC<{ setActiveView: (view: ParticipantView) => void 
 
         return {
             players: { valid: finalPlayers.length === 11, count: finalPlayers.length, needed: 11 },
-            vips: { valid: vipCount <= activeEvent.maxVipPlayers, count: vipCount, max: activeEvent.maxVipPlayers },
+            vips: { valid: vipCount === activeEvent.maxVipPlayers, count: vipCount, needed: activeEvent.maxVipPlayers },
             team: { valid: maxFromTeam <= activeEvent.maxPlayersFromSingleTeam, count: maxFromTeam, max: activeEvent.maxPlayersFromSingleTeam },
             wk: { valid: wkCount >= 1, count: wkCount, needed: 1 },
             bow: { valid: bowlerCount >= 2, count: bowlerCount, needed: 2 },
@@ -242,7 +261,7 @@ const CreateTeamView: React.FC<{ setActiveView: (view: ParticipantView) => void 
         setError('');
         if (!teamName.trim()) { setError('Team name is required.'); return; }
         if (!validationStatus.players.valid) { setError('You must select exactly 11 players.'); return; }
-        if (!validationStatus.vips.valid) { setError(`You can select a maximum of ${activeEvent.maxVipPlayers} VIP players.`); return; }
+        if (!validationStatus.vips.valid) { setError(`You must select exactly ${activeEvent.maxVipPlayers} VIP players.`); return; }
         if (!validationStatus.team.valid) { setError(`You can select a maximum of ${activeEvent.maxPlayersFromSingleTeam} players from a single real-life team.`); return; }
         if (validationStatus.foreign.isDomestic && !validationStatus.foreign.valid) { setError(`You can select a maximum of ${activeEvent.maxForeignPlayers} foreign players.`); return; }
         if (!validationStatus.wk.valid) { setError('You must have at least one Wicketkeeper.'); return; }
@@ -251,13 +270,20 @@ const CreateTeamView: React.FC<{ setActiveView: (view: ParticipantView) => void 
 
         const finalPlayers = selectedPlayers.filter(p => p !== null) as ParticipantTeamPlayer[];
 
-        const newTeam: Omit<ParticipantTeam, 'id'> = {
-            participantId: user.id, participantName: user.fullName, teamName, eventId: activeEvent.id,
-            players: finalPlayers, replacementsLeft: activeEvent.maxReplacements, archivedPoints: 0, joinHistory: {}
-        };
-        await actions.addParticipantTeam(newTeam);
-        alert('Team created successfully!');
-        setActiveView('viewMyXI');
+        if (isEditing && teamToEdit) {
+            const updatedTeam = { ...teamToEdit, teamName, players: finalPlayers };
+            await actions.updateParticipantTeam(updatedTeam);
+            alert('Team updated successfully!');
+            setActiveView('viewMyXI');
+        } else {
+            const newTeam: Omit<ParticipantTeam, 'id'> = {
+                participantId: user.id, participantName: user.fullName, teamName, eventId: activeEvent.id,
+                players: finalPlayers, replacementsLeft: activeEvent.maxReplacements, archivedPoints: 0, joinHistory: {}
+            };
+            await actions.addParticipantTeam(newTeam);
+            alert('Team created successfully!');
+            setActiveView('viewMyXI');
+        }
     };
 
     const teamSlots = [
@@ -280,14 +306,14 @@ const CreateTeamView: React.FC<{ setActiveView: (view: ParticipantView) => void 
     const ValidationItem: React.FC<{label: string, status: {valid: boolean, count: number, needed?: number, max?: number} }> = ({label, status}) => (
         <li className={`flex justify-between items-center text-sm ${status.valid ? 'text-green-400' : 'text-red-400'}`}>
             <span>{label}</span>
-            <span className="font-mono">{status.needed ? `${status.count}/${status.needed}` : `${status.count}/${status.max}`}</span>
+            <span className="font-mono">{status.needed !== undefined ? `${status.count}/${status.needed}` : `${status.count}/${status.max}`}</span>
         </li>
     );
 
     return (
         <div className="flex flex-col md:flex-row gap-8">
             <div className="w-full md:w-2/3 bg-gray-800 p-8 rounded-lg">
-                <h2 className="text-2xl font-bold mb-6 text-green-400">Create Your Team for {activeEvent.name}</h2>
+                <h2 className="text-2xl font-bold mb-6 text-green-400">{isEditing ? 'Edit' : 'Create'} Your Team for {activeEvent.name}</h2>
                 <input type="text" placeholder="Your Team Name" value={teamName} onChange={e => setTeamName(e.target.value)} className="w-full bg-gray-700 p-2 rounded mb-4" />
                 
                 <div className="space-y-2">
@@ -313,7 +339,7 @@ const CreateTeamView: React.FC<{ setActiveView: (view: ParticipantView) => void 
                      <label htmlFor="terms" className="text-sm text-gray-400">I agree that this is for fun and no money or betting is involved.</label>
                 </div>
                 <div className="mt-6">
-                     <button onClick={handleSubmit} className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg text-lg">Submit Team</button>
+                     <button onClick={handleSubmit} className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg text-lg">{isEditing ? 'Update' : 'Submit'} Team</button>
                 </div>
             </div>
             <div className="w-full md:w-1/3 bg-gray-800 p-6 rounded-lg self-start">
@@ -348,7 +374,7 @@ interface ViewMyXIViewProps {
 const ViewMyXIView: React.FC<ViewMyXIViewProps> = ({setActiveView, team, status}) => {
     const { state } = useData();
 
-    if (!team) return <div>You have not created a team yet.</div>;
+    if (!team) return <div>You have not created a team yet. Go to the dashboard to get started.</div>;
     
     const getPlayerDetails = (playerId: string) => state.players.find(p => p.id === playerId);
 
@@ -395,13 +421,16 @@ const ViewMyXIView: React.FC<ViewMyXIViewProps> = ({setActiveView, team, status}
 
     return (
         <div className="bg-gray-800 p-8 rounded-lg">
-            <div className="flex justify-between items-center mb-6">
+            <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
                 <h2 className="text-2xl font-bold text-green-400">
                     {team.teamName}
                     {status === 'FINISHED' && <span className="ml-4 text-sm font-normal text-yellow-400">(Event Finished)</span>}
                     {status === 'UPCOMING' && <span className="ml-4 text-sm font-normal text-blue-400">(Event Upcoming)</span>}
                 </h2>
-                {status === 'RUNNING' && team.replacementsLeft > 0 && <button onClick={() => setActiveView('replacePlayer')} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">Request Replacement</button>}
+                <div className="flex items-center space-x-2">
+                    {status === 'UPCOMING' && <button onClick={() => setActiveView('editTeam')} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">Edit Team</button>}
+                    {status === 'RUNNING' && team.replacementsLeft > 0 && <button onClick={() => setActiveView('replacePlayer')} className="bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 px-4 rounded">Request Replacement</button>}
+                </div>
             </div>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6 text-center">
                 <div className="bg-gray-700 p-4 rounded-lg">
@@ -455,13 +484,15 @@ const ViewAllTeamsView: React.FC = () => {
     const { user } = useAuth();
     const [expandedId, setExpandedId] = useState<string | null>(null);
 
-    const activeEvent = state.events.find(event => new Date(event.registrationDeadline) >= new Date());
-    if (!activeEvent) return <div>No active event.</div>;
+    const now = new Date();
+    const activeEvent = state.events.find(event => new Date(event.tournamentEndTime) > now);
+
+    if (!activeEvent) return <div className="bg-gray-800 p-8 rounded-lg text-center"><h2 className="text-2xl font-bold">No Active Event</h2><p>This page is only available during an active event.</p></div>;
     
     const participantTeams = state.participantTeams.filter(pt => pt.eventId === activeEvent.id);
     const getPlayerName = (id: string) => state.players.find(p => p.id === id)?.name || 'Unknown Player';
 
-    if (new Date() < new Date(activeEvent.registrationDeadline) && !state.siteSettings.showParticipantTeams) {
+    if (now < new Date(activeEvent.registrationDeadline) && !state.siteSettings.showParticipantTeams) {
         return (
             <div className="bg-gray-800 p-8 rounded-lg text-center">
                 <h2 className="text-2xl font-bold mb-4 text-yellow-400">Feature Disabled</h2>
