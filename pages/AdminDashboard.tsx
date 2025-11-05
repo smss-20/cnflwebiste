@@ -371,6 +371,8 @@ const PlayerManagementView: React.FC = () => {
     const [bulkPlayers, setBulkPlayers] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
+    const selectedEvent = useMemo(() => state.events.find(e => e.id === selectedEventId), [state.events, selectedEventId]);
+
     const teamsForEvent = state.teams.filter(t => t.eventId === selectedEventId);
     const playersForEvent = state.players.filter(p => p.eventId === selectedEventId);
 
@@ -386,13 +388,15 @@ const PlayerManagementView: React.FC = () => {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!selectedEventId || !formData.teamId || !formData.name) return;
+        if (!selectedEventId || !selectedEvent || !formData.teamId || !formData.name) return;
         const teamName = teamsForEvent.find(t => t.id === formData.teamId)?.name || '';
 
+        const playerTypeForSubmit = selectedEvent.leagueType === 'domestic' ? formData.playerType : PlayerType.LOCAL;
+
         if (editingPlayer) {
-            await actions.updatePlayer({ ...editingPlayer, ...formData, teamName });
+            await actions.updatePlayer({ ...editingPlayer, ...formData, teamName, playerType: playerTypeForSubmit });
         } else {
-            const newPlayer: Omit<Player, 'id' | 'points'> = { ...formData, teamName, eventId: selectedEventId };
+            const newPlayer: Omit<Player, 'id' | 'points'> = { ...formData, teamName, eventId: selectedEventId, playerType: playerTypeForSubmit };
             await actions.addPlayer({ ...newPlayer, points: [] });
         }
         setFormData({ name: '', category: PlayerCategory.BATSMAN, playerType: PlayerType.LOCAL, teamId: '' });
@@ -411,11 +415,12 @@ const PlayerManagementView: React.FC = () => {
     }
     
     const handleBulkAdd = async () => {
-        if (!selectedEventId) {
+        if (!selectedEventId || !selectedEvent) {
             alert("Please select an event first.");
             return;
         }
         setIsSubmitting(true);
+        const isDomestic = selectedEvent.leagueType === 'domestic';
         const lines = bulkPlayers.split('\n').filter(line => line.trim() !== '');
         let successCount = 0;
         let errorCount = 0;
@@ -423,12 +428,25 @@ const PlayerManagementView: React.FC = () => {
         const newPlayers: Omit<Player, 'id' | 'points'>[] = [];
 
         lines.forEach((line, index) => {
-            const [name, categoryStr, typeStr, teamName] = line.split(',').map(s => s.trim());
-            if (!name || !categoryStr || !typeStr || !teamName) {
-                errorCount++;
-                errors.push(`Line ${index + 1}: Invalid format. Expected: Name,Category,Type,Team Name`);
-                return;
+            const parts = line.split(',').map(s => s.trim());
+            let name, categoryStr, typeStr, teamName;
+            
+            if (isDomestic) {
+                [name, categoryStr, typeStr, teamName] = parts;
+                if (!name || !categoryStr || !typeStr || !teamName) {
+                    errorCount++;
+                    errors.push(`Line ${index + 1}: Invalid format. For domestic events, expected: Name,Category,Type,Team Name`);
+                    return;
+                }
+            } else { // International
+                [name, categoryStr, teamName] = parts;
+                if (!name || !categoryStr || !teamName) {
+                    errorCount++;
+                    errors.push(`Line ${index + 1}: Invalid format. For international events, expected: Name,Category,Team Name`);
+                    return;
+                }
             }
+
             const team = teamsForEvent.find(t => t.name.toLowerCase() === teamName.toLowerCase());
             if (!team) {
                 errorCount++;
@@ -441,7 +459,9 @@ const PlayerManagementView: React.FC = () => {
                  errors.push(`Line ${index + 1}: Invalid category "${categoryStr}". Must be one of: ${Object.values(PlayerCategory).join(', ')}`);
                  return;
             }
-            const playerTypeValue = Object.values(PlayerType).find(pt => pt.toLowerCase() === typeStr.toLowerCase());
+            const playerTypeValue = isDomestic
+                ? Object.values(PlayerType).find(pt => pt.toLowerCase() === (typeStr || '').toLowerCase())
+                : PlayerType.LOCAL;
              if (!playerTypeValue) {
                  errorCount++;
                  errors.push(`Line ${index + 1}: Invalid type "${typeStr}". Must be 'Local' or 'Foreign'.`);
@@ -469,17 +489,19 @@ const PlayerManagementView: React.FC = () => {
                 {state.events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
             </select>
 
-            {selectedEventId && (
+            {selectedEventId && selectedEvent && (
                 <>
                     <h3 className="text-lg font-semibold mb-2">Add/Edit Player</h3>
-                    <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-5 gap-2 mb-6 p-4 bg-gray-700 rounded-lg">
+                    <form onSubmit={handleSubmit} className={`grid grid-cols-1 md:grid-cols-${selectedEvent.leagueType === 'domestic' ? 5 : 4} gap-2 mb-6 p-4 bg-gray-700 rounded-lg`}>
                         <input name="name" value={formData.name} onChange={handleFormChange} placeholder="Player Name" className="bg-gray-900 p-2 rounded" />
                         <select name="category" value={formData.category} onChange={handleFormChange} className="bg-gray-900 p-2 rounded">
                             {Object.values(PlayerCategory).map(c => <option key={c} value={c}>{c}</option>)}
                         </select>
-                        <select name="playerType" value={formData.playerType} onChange={handleFormChange} className="bg-gray-900 p-2 rounded">
-                            {Object.values(PlayerType).map(pt => <option key={pt} value={pt}>{pt}</option>)}
-                        </select>
+                        {selectedEvent.leagueType === 'domestic' && (
+                            <select name="playerType" value={formData.playerType} onChange={handleFormChange} className="bg-gray-900 p-2 rounded">
+                                {Object.values(PlayerType).map(pt => <option key={pt} value={pt}>{pt}</option>)}
+                            </select>
+                        )}
                          <select name="teamId" value={formData.teamId} onChange={handleFormChange} className="bg-gray-900 p-2 rounded">
                             <option value="">Select Team</option>
                             {teamsForEvent.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
@@ -489,18 +511,31 @@ const PlayerManagementView: React.FC = () => {
 
                     <div className="my-8 border-t border-gray-700 pt-6">
                         <h3 className="text-lg font-semibold mb-2">Bulk Add Players</h3>
-                        <p className="text-sm text-gray-400 mb-2">Paste player list here. Format: `Name,Category,Type,Team Name`.</p>
-                        <textarea value={bulkPlayers} onChange={e => setBulkPlayers(e.target.value)} placeholder={`Virat Kohli,Batsman,Foreign,Royal Challengers Bengaluru\nRashid Khan,Bowler,Foreign,Gujarat Titans\nLitton Das,Wicketkeeper,Local,Comilla Victorians`} className="w-full bg-gray-900 p-2 rounded h-40 font-mono text-sm"></textarea>
+                        <p className="text-sm text-gray-400 mb-2">Paste player list here. Format: 
+                            {selectedEvent.leagueType === 'domestic'
+                                ? ` \`Name,Category,Type,Team Name\`.`
+                                : ` \`Name,Category,Team Name\`. The 'Type' column is not needed for international events.`
+                            }
+                        </p>
+                        <textarea 
+                            value={bulkPlayers} 
+                            onChange={e => setBulkPlayers(e.target.value)} 
+                            placeholder={
+                                selectedEvent.leagueType === 'domestic'
+                                ? `Faf du Plessis,Batsman,Foreign,Royal Challengers Bengaluru\nRashid Khan,Bowler,Foreign,Gujarat Titans\nShubman Gill,Batsman,Local,Gujarat Titans`
+                                : `Babar Azam,Batsman,Pakistan\nPat Cummins,Bowler,Australia\nVirat Kohli,Batsman,India`
+                            }
+                            className="w-full bg-gray-900 p-2 rounded h-40 font-mono text-sm"></textarea>
                         <button onClick={handleBulkAdd} disabled={isSubmitting} className="mt-2 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded disabled:bg-gray-500">{isSubmitting ? 'Processing...' : 'Process Bulk Add'}</button>
                     </div>
 
                     <h3 className="text-lg font-semibold mb-2 mt-8">Existing Players</h3>
                      <div className="space-y-2">
                         {playersForEvent.map(player => (
-                             <div key={player.id} className="bg-gray-700 p-3 rounded-lg grid grid-cols-5 items-center gap-2">
+                             <div key={player.id} className={`bg-gray-700 p-3 rounded-lg grid grid-cols-${selectedEvent.leagueType === 'domestic' ? 5 : 4} items-center gap-2`}>
                                 <span>{player.name}</span>
                                 <span>{player.category}</span>
-                                <span>{player.playerType}</span>
+                                {selectedEvent.leagueType === 'domestic' && <span>{player.playerType}</span>}
                                 <span>{player.teamName}</span>
                                  <div className="space-x-2 text-right">
                                     <button onClick={() => handleEdit(player)} className="p-2 bg-blue-600 rounded hover:bg-blue-700"><EditIcon/></button>
@@ -512,7 +547,7 @@ const PlayerManagementView: React.FC = () => {
                 </>
             )}
         </div>
-    )
+    );
 }
 
 const PlayerPointsUpdateView: React.FC = () => {
